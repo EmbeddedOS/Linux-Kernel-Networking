@@ -188,7 +188,7 @@
 ## Transmit path od an application packet
 
 ```text
-|Application write()|                                            User space |
+|Application write()|                                              User space |
 |---||-----------||-----------------------------------------------------------|
     ||           ||                                              kernel space |
     ||           ||=Buffer================================\\
@@ -252,6 +252,224 @@
 
 - Too many context switches.
   - Pollutes CPU cache.
-- Per-packet interrupt overhead.
+- **Per-packet** interrupt overhead.
 - Dynamic copy between kernel and user space.
-- Shared data structured.
+- Shared data structured: `sk-buff`, tcp queues, etc shared data so we need some lock mechanisms.
+  
+- Cannot achieve line-rate for recent high speed NICs! (40GBps, 100Gbps).
+
+## Optimizations to accelerate kernel packet processing
+
+- NAPI (New API).
+- GRO (Generic Receive Offload).
+- GSO (Generic Segmentation Offload): GRO + GSO with DPDK
+- Use of multiple hardware queues: Multiqueue NIC, Supplement: RSS + RPS + ...
+
+## Packet Processing Overheads in Kernel
+
+- Context switch between kernel and user space.
+- Packet copy between kernel and user space.
+- Dynamic allocation of `sk_buff`.
+- Per packet interrupt.
+- Shared data structures.
+
+- The solution for these overheads: bypass the kernel.
+
+- From:
+
+  ```text
+  |Application|
+      /\
+      ||
+      \/
+  |   Kernel  |
+      /\
+      ||
+      \/
+  |    NIC    |
+  ```
+
+- Become:
+
+  ```text
+  |   Application   |
+  |Packet Processing|
+          /\
+          ||
+          \/
+  |       NIC       |  
+  ```
+
+- So the L2 and L4 packet processing will be moved from Kernel to user space.
+- The Application and Packet Processing have shared buffers.
+
+- NO Context switching between kernel and user space.
+- NO Packet copy between kernel and user space.
+- NO Dynamic allocation of `sk_buff`.
+
+### Interrupt vs Poll Mode
+
+- Interrupt mode:
+  - CPU <--------- NIC
+  - NIC notifies it needs servicing.
+  - Interrupt is a hardware mechanism.
+  - Handled using interrupt handler.
+  - Interrupt overhead for high speed traffic.
+  - Interrupt for a batch of packets.
+
+- Poll Mode:
+  - CPU ----------> NIC.
+  - CPU keeps checking the NIC.
+  - Polling is done with help of control bits (command-ready bit).
+  - Handled by CPU.
+  - Consumes CPU cycles but handles high speed traffic.
+  - DPDK.
+
+## Intel Data Plane Development Kit (DPDK)
+
+```text
+|--------------------------------------------------|
+                                        User space |
+           _____________________
+          |_____Application_____|
+              /\              /\
+              ||              ||
+         _____||______________||_______________
+        |     \/              ||               |
+        |  //<<<\\           _\/_              |
+        | ||     ||-------->|____| rte_mbuf    |
+        |  \\>>>// rte_ring   /\               |
+        |_____/\______________||___rte_mempool_|
+              ||              ||
+           ___||______________||
+          |_Poll_mode_drivers___|
+             /\       ||
+|------------||-------||---------------------------|
+             ||       ||              Kernel space |
+           __||_______\/__                         |
+          |______NIC______|                        |
+```
+
+- Poll mode user space drivers (uio).
+  - Unbinds NIC from kernel.
+- Mempool: HUGE pages to avoid TBL misses.
+- Rte_mbuf: metadata + packet buffer.
+  - Similar with `sk_buff`.
+- Cooperative multiprocessing:
+  - Safe for trusted application.
+
+## Netmap
+
+- Netmap rings are memory regions in kernel space shared between application and kernel.
+- No extra copy of a packet.
+- NIC can work with netmap as well as kernel drivers (transparent mode).
+
+```text
+|--------------------------------------------------|
+                                        User space |
+     _____________________
+    |_____Application_____|
+      /\      /\   
+|-----||------||-----------------------------------|
+      ||      ||                      Kernel space |
+      ||      ||             _________
+      ||      ||            |_Sockets_|
+   ___||______||____             /\
+  |   ||      ||    |            ||
+  |  _||    //<<<\\ |        ____\/_________
+  | |___|<-||     |||       |  Kernel TCP   |
+  |         \\>>>// |       |____Stack______|
+  |__________/\_____|            /\
+       ______||__________________||_________    
+      |  ____\/________     _____\/_______  |
+      | |_Netmap_driver|   |Driver(ixgbe)_| |
+      |______/\_________________/\__________|
+             ||                 ||
+           __\/_________________\/__               |
+|---------|___________NIC___________|--------------|
+```
+
+- DPDK, netmap manage processing till Layer 2 of network stack.
+
+## What about Layer 3 and Layer 7 processing?
+
+- Over heads with Layer 3 and Layer 7 processing in Kernel.
+  - Shared data structure: TCP data, socket.
+
+- User space network stack.
+  - Over netmap or DPDK.
+
+- mTCP: multi-core TCP.
+
+- By default the NIC hardware interrupt is handled by single core.
+
+## Multi-queue NIC
+
+```text
+Application   |                           |
+              |---------------------------|
+NIC           |                           |
+              |                           |
+              | |Rx Queue 1| |Rx Queue 2| |
+              | |Tx Queue 1| |Tx Queue 2| |
+              |                           |
+              | |Rx Queue 3| |Rx Queue n| |
+              | |Tx Queue 3| |Tx Queue n| |
+              |---------------------------|
+                            /\
+                            ||
+  Incoming packet to NIC===//
+```
+
+- Use the technique **Receive Side Scaling (RSS)**. Hash of (src_ip, dst_ip, src_port, dst_port) return queue ID for the packet will come.
+
+## multi-core TCP: User space network stack
+
+- Designed for multi-core scalable application.
+- Per core TCP data structures:
+  - E.g. accept queue, socket list.
+  - Lock free.
+  - Connection locality.
+- Leverages multi-queue support of NIC.
+
+```text
+
+              |  ______________________________  |
+              | |_________Application__________| |
+              |   /\       /\     /\       /\    |
+              |   ||       ||     ||       ||    |
+              | __\/_______\/_____\/_______\/___ |
+Per core      ||                                ||
+mTCP thread   ||  /<<\    /<<\    /<<\    /<<\  ||
+              || ||  ||  ||  ||  ||  ||  ||  || ||
+              ||  \>>/    \>>/    \>>/    \>>/  ||
+              ||__________netmap/DPDK___________||
+              |   /\      /\      /\      /\     |
+|Application  |   ||      ||      ||      ||     |
+|-------------|---||------||------||------||-----|
+|NIC          |   ||      ||      ||      ||     |
+              |   \/      \/      \/      \/     |
+              | |Rx Q1| |Rx Q2| |Rx Q3| |Rx Qn|  |
+              | |Tx Q1| |Tx Q2| |Tx Q4| |Tx Qn|  |
+              |----------------------------------|
+                    Hashing algorithm
+                            /\
+                            ||
+  Incoming packet to NIC===//
+```
+
+## What's the trending?
+
+- Offload application processing to the kernel.
+  - BPF (Berkekey Packet Filter).
+  - eBFP (eXtended BPF).
+
+- Offload application processing to the NIC driver.
+  - XDP (eXpress DataPath).
+
+- Offload application processing to programable hardware.
+  - Programmable SmartNICs (NPU/DPU).
+    - Netronome, Mellanox, Bluefield, etc.
+  - Programable FPGA.
+    - Xilins, Altera.
+  - Programmable hardware ASICs.
