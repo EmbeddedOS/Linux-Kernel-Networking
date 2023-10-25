@@ -200,3 +200,107 @@ Kernel space        ||              ||
 - Commonly found in servers or as on-board chips.
 - Very good data-sheet publicly available.
 - Almost no logic hidden behind black-box firmware.
+
+## How to build a full user space driver in 4 simple steps
+
+- 1. Upload kernel driver.
+- 2. `mmap` the PCIe MMIO address space.
+- 3. Figure out physical addresses for DMA.
+- 4. Write the driver.
+
+- 1. Find the device we want to use command: `lspci`
+
+  ```text
+  03:00.0 Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP + ...
+  03:00.1 Ethernet controller: Intel Corporation 82599ES 10-Gigabit SFI/SFP + ...
+  ```
+
+- 2. Unload the kernel driver.
+
+  ```bash
+  echo 0000:03:00.1 > /sys/bus/pci/devices/0000:03:00.1/driver/unbind
+  ```
+
+- 3. mmap the PCIe configuration address space from user space.
+
+  ```C
+  int fd = open("/sys/bus/pci/devices/0000:03:00.0/resource0", O_RDWR);
+  struct stat stat;
+
+  fstat(fd, &stat);
+  uint8_t *registers = (uint8_t *)mmap(NULL, stat.st_size, PROT_READ, PROT_WRITE, MAP_SHARED, fd, 0);
+  ```
+
+  - Device registers:
+
+    ```text
+    |Offset   |Abbreviation|Name                      |RW |
+    |0x00000  |CTRL        |Device Control register   |RW |
+    |0x00008  |STATUS      |Device status register    |RO |
+    |0x00018  |CTRL_EXT    |Extended of DCR           |RW |
+    |0x00020  |ESDP        |Extended SDP control      |RW |
+    |0x00028  |I2CCTL      |I2C control               |RW |
+    |0x00200  |LEDCTL      |LED control               |RW |
+    |0x05078  |EXVET       |Extended VLAN Ether type  |RW |
+    ```
+
+  - For example, access registers: LEDs
+
+    ```C
+    #define LEDCTL 0x0200
+    #define LED0_BLINK_OFFS 7
+
+    uint32_t leds = *((volatile uint32_t *)(registers + LEDCTL));
+    *((volatile uint32_t*))(registers + LEDCTL) = leds | (1 << LED0_BLINK_OFFS);
+    ```
+
+  - Memory-mapped IO: all memory accesses go directly to the NIC.
+  - One of the very few valid uses `volatile` in C.
+
+## How are packets handled?
+
+- Packets are transferred via DMA (Direct Memory Access).
+- DMA transfer is initiated by the NIC.
+- Packets are transferred via queue interfaces (often called rings).
+- NICs have multiple receive and transmit queues:
+  - Modern NICs have 128 to 768 queues.
+  - This is how NICs scale to multiple CPU cores.
+  - Similar queues are also used in GPUs an NVMe disks.
+
+## Rings/Queues
+
+- Specific to `ixgbe`, but most NICs are similar.
+- Rings are circular buffers filled with DMA descriptor.
+  - DMA descriptors are 16 bytes: 8 byte physical pointer, 8 byte metadata
+  - Translate virtual addresses to physical addressing using `/proc/self/pagemap`.
+- Queue of DMA descriptors is accessed via DMA.
+- Queue index pointers (head & tail) available via registers for synchronization.
+
+- Ring memory layout:
+
+```text
+Physical memory:
+   
+   //========================\\
+   ||     //==================||=====\\
+   ||     ||     //===========||======||========\\
+   ||     ||     ||           \/      \/         \/
+|16byte|16byte|16byte|...|2kilobyte|2kilobyte|2kilobyte|...      |
+ \__________________/     \_____________________________________/
+          ||                                ||
+   Descriptor Ring                      Memory Pool
+```
+
+## Receiving packets
+
+- Tell NIC via MMIO the location and size of the ring.
+- Fill DMA descriptors with pointers to allocated memory.
+
+- NIC writes a packet via DMA and increments the head pointer.
+- NIC also sets a status flag in the DMA descriptor once it's done.
+  - Checking the status flag is way faster than reading the MMIO-mapped RDH register.
+
+- Periodically poll the status flag.
+- Process the packet.
+- Reset the DMA descriptor, allocate a new packet or recycle.
+- Adjust tail pointer (RDT) register.
