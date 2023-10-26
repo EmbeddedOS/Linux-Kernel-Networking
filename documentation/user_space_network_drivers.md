@@ -95,3 +95,33 @@
 - `ixy` only features one abstraction level: it decouples the used driver from the user's application. Applications call into ixy to initialize a network device by its PCI address, ixy choses the appropriate driver automatically and returns a struct containing function pointers for driver-specific implementations. We currently expose packet reception, transmission, and device statistics to the application. Packet APIs are based on explicit allocation of buffers from specialized *memory pool* data structures.
 
 - Applications include the driver directly, ensuring a quick turn-around time when modifying the driver. This means that the driver logic is only a single function call away from application logic, allowing the user to read the code from a top-down level without jumping between complex abstraction interfaces or even system calls.
+
+### NIC Selection
+
+- `ixy` is based on custom user space re-implementation of the Intel ixgbe driver and the VirtIO virtio-net driver cut down to their bare essentials.
+- We chose ixgbe for ixy because Intel releases extensive data-sheets and the ixgbe NICs are commonly found in commodity servers. These NICs are also interesting because they expose a relatively low-level interface to the drivers.
+  - NOTE: Other NICs like the newer Intel XL710 series or Mellanox ConnectX4/5 follow a more firmware-driven design: a lot of functionality is **hidden behind a black box firmware** running on the NIC and the driver merely communicates via a message interface with the firmware which does the hard work.
+  - Our goal with ixy is understanding the full stack - a black-box firmware is counterproductive here and we have no plans to add support for such NICs.
+
+- VirtIO was selected as second driver to ensure that everyone can run the code without hardware dependencies. A second interesting characteristic of VirtIO is that it is based on PCI instead of PCIe, requiring a different approach to implement the driver in user space.
+
+### User Space Drivers in Linux
+
+- There are two subsystems in Linux that enable user space drivers: `uio` and `vfio`, we support both.
+
+- `uio` exposes all necessary interfaces to write full user space drivers via memory mapping files in the `sysfs` pseudo filesystem. These file-based APIs give us full access to the device without needing to write any kernel code. ixy unloads any kernel driver for the given PCI device to prevent conflicts, i.e., there is no driver loaded for the NIC while ixy is running.
+
+- `vfio` offers more features: IOMMU and interrupts are only supported with `vfio`. However, these feature come at the cost of additional complexity: It requires binding the PICe device to the generic `vfio-pci` driver and it then exposes an API via `ioctl` system calls on special files.
+
+- One needs to understand how a driver communicates with a device to understand how a driver can be written in user space. A driver can communicate via two ways with a PCIe device:
+  - 1. The driver can initiate an access to the device's **Base Address Registers** (BARs).
+  - 2. Or the device can initiate a **Direct Memory Access** (DMA) to access arbitrary main memory locations.
+
+#### Accessing Device Registers
+
+- MMIO maps a memory area to device IO, i.e, reading from or writing to this memory area receives receives/sends data from/to the device.
+  - `uio` exposes all BARs in the `sysfs` pseudo filesystem, a privileged process can simply `mmap` them into its address space.
+  - `vfio` provides an `ioctl` that returns memory mapped to this area. Devices expose their configuration registers via this interface where normal reads and writes can be used to access registers.
+    - For example, ixgbe NICs expose all configuration, statistics, and debugging registers via the BAR0 address space. Our implementations of these mappings are in `pci_map_resource()` in [pci.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/pci.c) and in `vfio_map_region()` in [libixy-vfio.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/libixy-vfio.c).
+
+- VirtIO (in the version we are implementing) is unfortunately based on PCI and not on PCIe and its BAR is an IO port resource that must be accessed with the archaic `IN` and `OUT` x86 instructions requiring IO privileges. Linux can grant processes the necessary privileges via `ioperm(2)`, DPDK uses this approach for their VirtIO driver.
