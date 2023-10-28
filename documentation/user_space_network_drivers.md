@@ -125,3 +125,74 @@
     - For example, ixgbe NICs expose all configuration, statistics, and debugging registers via the BAR0 address space. Our implementations of these mappings are in `pci_map_resource()` in [pci.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/pci.c) and in `vfio_map_region()` in [libixy-vfio.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/libixy-vfio.c).
 
 - VirtIO (in the version we are implementing) is unfortunately based on PCI and not on PCIe and its BAR is an IO port resource that must be accessed with the archaic `IN` and `OUT` x86 instructions requiring IO privileges. Linux can grant processes the necessary privileges via `ioperm(2)`, DPDK uses this approach for their VirtIO driver.
+  - we found it too cumbersome to initiate and use as it requires either parsing the PCIe configuration space or text files that, unlike their MMIO counterparts, cannot be `mapped`.
+- These files can be opened and accessed via normal read and write calls that are then translated to the appropriate IO port commands by the kernel. We found this easier to use and understand but slower due to the required system call.
+  - See `pci_open_resource()` in [pci.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/pci.c) and `read/write_ioX()` in [device.h](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/driver/device.h)
+
+- A potential pitfall is that **the exact size of the read and writes are important**, e.g., accessing a single 32bit register with 2 16bit reads will typically fail and trying to read multiple small registers with one read might not be supported.
+  - The exact semantics are up to the device, Intel's ixgbe NICs only expose 32 bit registers that support partial reads (except clear-on-read registers) but not partial writes.
+
+- Virtio uses different register sizes and specifies that any access width should work in the mode we are using in practice only aligned and correctly sized accesses work reliably.
+
+#### DMA in User space
+
+- DMA is initiated by the PCIe device and allows it to read/write arbitrary physical ad
+dresses. This is used to access packet data and to transfer the DMA descriptors (pointers to packet data) between driver and NIC.
+
+- DMA needs to be explicitly enabled for a device via the PCI configuration space, our implementation is in `enable_dma()` in [pci.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/pci.c) for `uio` and in `vfio_enable_dma()` in [libixy-vfio.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/libixy-vfio.c) for `vfio`.
+
+- DMA memory allocation differs significantly between `uio` and `vfio`.
+
+##### uio DMA memory allocation
+
+- Memory used for DMA transfer must stay resident in **physical memory**. `mlock()` can be used to disable swapping.
+  - However this only guarantee that the physical address of the allocated memory stays the same. The linux page migration mechanism can change the physical address of any page allocated memory by the user space at any time, e.g, to implement transparent huge pages and NUMA optimizations.
+  - Linux does not implement page migration of explicitly allocated huge pages (2MB or 1GB pages on x86). `ixy` therefore uses huge pages which also simplify allocating physically contiguous chunks of memory.
+  - Huge pages allocated in user space are used by all investigated full user space drivers, but they are often passed off as a mere performance improvement despite being crucial for reliable allocation of DMA memory.
+
+- The user space driver hence also needs to be able to translate its virtual addresses to physical addresses, this is possible via the `procfs` file `/proc/self/pagemap`, the translation logic is implemented in `virt_to_phys()` in [memory.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/memory.c).
+
+##### vfio DMA memory allocation
+
+- The previous DMA memory allocation scheme is specific to a quirk in Linux on x86 and not portable.
+
+- `vfio` features a portable way to allocate memory that internally calls `dma_alloc_coherent()` in the kernel like an in-kernel driver would.
+- This system call abstracts all the messy details and is implemented in our driver in `vfio_map_dma()` in `libixy-vfio.c`.
+- It requires an IOMMU and configures the necessary mapping to use virtual addresses for the device.
+
+##### DMA and cache coherency
+
+- Both of our implementations require a CPU architecture with cache-coherent DMA access. Older CPUs might not support this this and require explicit cache flushes to memory before DMA data can be read by the device.
+
+- Modern CPUs do not have that problem. In fact, one of the main enabling technologies for high speed packet IO is that DMA accesses do not actually go to memory but to the CPU's cache on any recent CPU architecture.
+
+#### Interrupts in User Space
+
+- `vfio` features full support for interrupts, `vfio_setup_interrupt()` in [libixy_vfio.c](https://github.com/emmericp/ixy/blob/f0f2ce884ff6a14cd49d9b9aa1d3518c5a65c180/src/libixy-vfio.c) enables a specific interrupt for `vfio` and associates it with an eventfd file descriptor.
+
+- `enable_msix_interrupt()` in [ixgbe.c](https://github.com/emmericp/ixy/blob/f0f2ce884ff6a14cd49d9b9aa1d3518c5a65c180/src/driver/ixgbe.c).
+
+- Interrupts are mapped to a file descriptor on which the usual sys-calls like `epoll` are available to sleep until an interrupt occurs, see `vfio_epoll_wait()` in [libixy-vfio.c](https://github.com/emmericp/ixy/blob/f0f2ce884ff6a14cd49d9b9aa1d3518c5a65c180/src/libixy-vfio.c).
+
+### Memory Management
+
+- ixy builds on an API with explicit memory allocation similar to DPDK which is a very different approach from netmap that exposes a replica of the NIC's ring buffer to the application. Memory allocation for packets was cited as one of the main reasons why netmap is faster than traditional in kernel-processing.
+
+- Hence, netmap lets the application handle memory allocation details. Many forwarding cases can then be implemented by simply swapping pointers in the rings. However, more complex scenarios where packets are not forwarded immediately to a NIC (e.g., because they are passed to a different core in a pipeline setting) do not map well to this API and require adding manual buffer management on top of this API.
+
+- It is true the that memory allocation for packets is significant overhead in the Linux Kernel, we have measured a per-packet overhead of 100 cycles when forwarding packets with Open VSwitch on Linux for allocating and freeing packet memory (measured with `perf`).
+  - The overhead is almost completely due to (re-)initialization of the kernel `sk_buff` struct: **a large data structure with a lot of metadata fields targeted at a general-purpose network stack**.
+
+- Memory allocation in `ixy` (with minimum metadata required) only adds an overhead of 30 cycles/packet, a price that we are willing to pay for the gained simplicity in the user-facing API.
+
+- ixy's API is the same as DPDK's API when it comes to sending and receiving packets and managing memory. It can best be explained by reading the example applications [ixy-fwd.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/app/ixy-fwd.c) and [ixy-pktgen.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/app/ixy-pktgen.c).
+
+- the transmit-only example [ixy-pktgen.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/app/ixy-pktgen.c) creates a *memory pool*, a fixed-size collection of fixed-size packet buffers and pre-fills them with packet data. It then allocates a batch of packets from this pool, adds a sequence number to the packet, and passes them to the transmit function.
+  - The transmit function is asynchronous: it enqueues pointers to these packets, the NIC fetches and sends them later. Previously sent packets are freed asynchronously in the transmit function by checking the queue for sent packets and returning them to the pool.
+  - This means that a packet buffer cannot be re-used immediately, the `ixy-pktgen` example look therefore quite different from a packet generator built on a classic socket API.
+
+- the forward example [ixy-fwd.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/app/ixy-fwd.c) can avoid explicit handling of memory pools in the application: the driver allocates a memory pool for each receive ring automatically allocates packets.
+
+## IXGBE IMPLEMENTATION
+
+## VIRTIO IMPLEMENTATION
