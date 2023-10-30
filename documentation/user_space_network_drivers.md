@@ -193,6 +193,98 @@ dresses. This is used to access packet data and to transfer the DMA descriptors 
 
 - the forward example [ixy-fwd.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/app/ixy-fwd.c) can avoid explicit handling of memory pools in the application: the driver allocates a memory pool for each receive ring automatically allocates packets.
 
-## IXGBE IMPLEMENTATION
 
-## VIRTIO IMPLEMENTATION
+## IXGBE implementation
+
+- IXGBE devices expose all configuration, statistics, and debugging registers via the BAR0 MMIO region.
+- We use the `ixgbe_type.h` from Intel's driver as machine-readable version of data-sheet, it contains defines for all register names and offsets for bit fields.
+
+### NIC Ring API
+
+- **NICs expose multiple circular buffers called queues or rings to transfer packets**.
+- The simplest setup uses only one receive and one transmit queue. Multiple transmit queues are merged on the NIC, incoming traffic is split according to filters or a hashing algorithm if multiple receive queues are configured.
+
+- Both receive and transmit rings work in a similar way: **the driver programs a physical base address and the size of the ring**. It then fills the memory area with *DMA descriptors*, i.e, pointers to physical addresses where the packets data is stored with some metadata.
+- Sending and receiving packets is done by passing ownership of the DMA descriptors between driver and hardware via a head and a tail pointer. The driver controls the tail, the hardware the head. Both pointers are stored in device registers accessible via MMIO.
+
+- The initialization code is in [ixgbe.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/driver/ixgbe.c#L173) starting from line 114 for receive queues and from line 173 for transmit queues.
+
+#### Receiving packets
+
+- The driver fills up the ring buffer with physical pointers to packet buffers in [start_rx_queue()](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/driver/ixgbe.c#L64) on start up.
+
+- Each time a packet is received, the corresponding buffer is returned to the application and we allocate a new packet buffer and store its physical address in the DMA descriptor and reset the ready flag.
+
+- We also need a way to translate the physical addresses in the DMA descriptor found in the ring back to its virtual counterpart on packet reception. This is done by **keeping a second copy of the ring populated with virtual instead of physical addresses, this is then used as a lookup table for the translate**.
+
+- DMA descriptors pointing into a memory pool, note that the packets in the memory are unordered as they can be free'd at different times:
+
+  ```text
+  Physical memory:
+
+      ixgbe_adv_rx_desc.pkt_addr   
+     //=======================\\
+    ||     //==================||=====\\
+    ||     ||     //===========||======||========\\
+    ||     ||     ||           \/      \/         \/
+  |16byte|16byte|16byte|...|2kilobyte|2kilobyte|2kilobyte|...      |
+   \__________________/     \_____________________________________/
+            ||                                ||
+    Descriptor Ring                      Memory Pool
+  ```
+
+  - This figure illustrates the memory layout: the DMA descriptors in the ring to the left contain physical pointers to packet buffers stored in a separate location in a memory pool.
+  - The packets buffers in the memory pool contain their physical address in a metadata field.
+
+- Overview of a receive queue. The ring uses physical addresses and is shared with the NIC.
+
+    ```text
+                               |rx index|==========\\
+                                ||                  \\//=======|RDT|
+    |Virt. addr. of buffer 0|   ||                   ||
+    |Virt. addr. of buffer 1|<==//           ________\/__
+    |Virt. addr. of buffer 2|               /\\_0_||_1_//\
+    |Virt. addr. of buffer 3|              /n / Rx Desc\ 2\
+          Buffer Table                    |==|   Ring.  |==|
+                                           \  \________/3 /
+                                            \//___||___\\/
+                                                /\
+                                                ||
+                                                \\============|RDH|
+    ```
+
+- This figure shows the RDH (Head) and RDT (Tail) registers controlling the ring buffer on the right side, and the local copy containing the virtual addresses to translate the physical addresses in the descriptors in the ring back for the application.
+
+- `ixgbe_rx_batch()` in `ixgbe.c` implements the receive logic as described by *Sections 1.8.2 and 7.1 of the data-sheet*. **It operates on batches of packets to increase performance**.
+
+- A native way to check if packets have been received is reading the head register from the NIC incurring a PCIe round trip. The hardware also sets a flag in the descriptor via DMA which is far cheaper to read as the DMA write is handled by the last-level cache on modern CPUs. This is effectively the difference between an LLC cache miss and hit for every received packet.
+
+#### Transmitting Packets
+
+- Transmitting packets follows the same concept and API as receiving them, but the function is more complicated because the interface between NIC and driver is asynchronous. Placing a packet into the ring does not immediately transfer it and blocking to wait for the transfer is infeasible.
+
+- Hence, the `ixgbe_tx_batch()` function in `ixgbe.c` consists of two parts: freeing packets from previous calls that were sent out by the NIC followed by placing the current packets into the ring.
+  - The first part is often called **cleaning and works** similar to receiving packets: the driver checks a flag that is set by the hardware after the packet associated with the descriptor is sent out. Sent packet buffers can the be free'd, making space in the ring.
+  - Afterwards, the pointers of the packets to be sent are stored in the DMA descriptors and the tail pointer is updated accordingly.
+
+- Checking for transmitted packets can be a bottleneck due to cache thrashing as both the device and driver access the same memory locations.
+  - The 82599 hardware implements two method to combat this: marking transmitted packets in memory occurs either automatically in configurable batches on device side, this can also avoid unnecessary PCIe transfer. We tried different configurations (code in `init_tx()`) and found that the default from work Intel's work best. The NIC can also write its current position in the transmit ring back to memory periodically.
+
+#### Batching
+
+- Each successful transmit or receive operation involves an update to the NIC's tail pointer register (RDT or TDT for receive/transmit), a slow operation. This is one of reasons why batching is so important for performance. Both receive and transmit function are batched in ixy, updating the register only once per batch.
+
+#### Offloading features
+
+- ixy currently only enables CRC checksum offloading. Unfortunately, packet IO frameworks (e.g, netmap) are often restricted to this bare minimum of offloading features.
+- DPDK is the exception here as it supports almost all offloading features offered by the hardware. However, its receive and transmit functions pay the price for
+ these features in the form of complexity.
+
+## VIRTIO Implementation
+
+- All section numbers for the specification refer to version 1.0 of the VirtIO specification.
+
+- VirtIO defines different types of operational modes for emulated network cards: **legacy**, **modern**, and **transitional devices**. qemu implements all three modes, the default being transitional devices supporting both the legacy and modern interface after feature negotiation. Supporting devices operating only in modern mode would be the simplest implementation in ixy because they work with MMIO.
+  - Both legacy and transitional devices require support for PCI IO port resources making the device access different from the ixgbe driver. Modern-only devices are rare because they are relatively new.
+
+- We chose to implement the legacy variant as VirtualBox only supports the legacy operation mode. VirtualBox is an important target as it is the only hypervisor supporting VirtIO that is available on all common OSs. Moreover, it is very well integrated with Vagrant allowing us to offer a self-contained setup to run ixy on any platform.
