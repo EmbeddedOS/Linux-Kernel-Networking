@@ -95,3 +95,39 @@
 - Once you have a working kernel module for your hardware, you can write the user-space part of your driver. You don't need any special libraries, your driver can be written in any reasonable language, you can use floating point numbers and so on. In short, you can use all the tool and libraries you'd normally use for writing a user-space application.
 
 ### Getting information about your UIO device
+
+- Information about all UIO devices is available in sysfs. The first thing you should do in your driver is check `name` and `version` to make sure your talking to the right device and that its kernel driver has the version you expect.
+- You should also make sure that the memory mapping you need exists and has the size you expect.
+- There is a tool called `lsuio` that lists UIO devices and their attributes. It is available: [User](http://www.osadl.org/projects/downloads/UIO/user/).
+
+- With `lsuio` you can quickly check if your kernel module is loaded and which attributes it exports.
+
+- The source code of `lsuio` can serve as an example for getting information about an UIO device. The file `uio_helper.c` contains a lot of functions you could use in your user-space driver code.
+
+### `mmap()` device memory
+
+- After you make sure you've got the right device with the memory mappings you need, all you have to do is to call `mmap()` to map the device's memory to user-space.
+
+- The parameter `offset` of the `mmap()` call has a special meaning for UIO devices: It is used to select which mapping of your device you want to map. To map the memory of mapping N, you have to use N times the page size as your offset:
+
+    ```C
+    offset = N * getpagesize();
+    ```
+
+- N starts from zero, so if you've got only one memory range to map, set `offset=0`. A drawback of this technique is that memory is always mapped beginning with its start address.
+
+### Waiting for interrupts
+
+- After you successfully mapped your devices memory, you can access it like an ordinary array. Usually, you will perform some initialization. After that, your hardware starts working and will generate an interrupt as soon as it's finished, has some data available, or needs your attention because an error occurred.
+
+- `/dev/uioX` is a read-only file. A `read()` will always block until an interrupt occurs.
+
+- You can also use `select()` on `/dev/uioX`.
+
+## Generic PCI UIO driver
+
+- The generic driver is a kernel module named `uio_pci_generic`. It can work with any device compliant to PCI 2.3 and any compliant PCI Express device. Using this, you only need to write the user-space driver, removing the need to write a hardware-specific kernel module.
+
+### Making the driver recognize the device
+
+- Since the driver does not declare any devices ids, it will not get loaded automatically and will not automatically bind to any devices, you must load it and allocate id to the driver yourself.
