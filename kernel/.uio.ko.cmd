@@ -1,0 +1,1 @@
+cmd_/home/larva/Documents/Linux-Kernel-Networking/kernel/uio.ko := ld -r -m elf_x86_64  -z max-page-size=0x200000 -z noexecstack   --build-id  -T ./scripts/module-common.lds -o /home/larva/Documents/Linux-Kernel-Networking/kernel/uio.ko /home/larva/Documents/Linux-Kernel-Networking/kernel/uio.o /home/larva/Documents/Linux-Kernel-Networking/kernel/uio.mod.o;  true
