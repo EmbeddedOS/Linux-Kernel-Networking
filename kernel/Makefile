@@ -1,4 +1,4 @@
-obj-m += uio.o
+obj-m += _uio.o
 
 PWD := $(CURDIR)
 
