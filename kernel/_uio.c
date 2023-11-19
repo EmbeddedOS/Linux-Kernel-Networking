@@ -11,7 +11,7 @@
 
 static struct uio_info *__info = NULL;
 static struct device *__dev = NULL;
-static int __irq = 0;
+static int __irq = 10;
 
 module_param(__irq, int, S_IRUGO);
 
