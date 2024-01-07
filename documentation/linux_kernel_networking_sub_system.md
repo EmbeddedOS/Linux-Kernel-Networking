@@ -36,7 +36,7 @@ Hardware    ||          ||          ||              ||                ||
   - `/ipv6`:
   - `/sched`: Queue algorithm, handle packet, various queue types.
 
-## 3. `net/core`, `net/sched`, and `net/socket.c`
+## 3. `/net/core`, `net/sched`, and `net/socket.c`
 
 ```text
                         Socket APIs:
@@ -68,3 +68,34 @@ Hardware    ||          ||          ||              ||                ||
 
 - `/net/sched/`: Queue algorithm, handle packet, various queue types.
 - `/net/socket.c`: socket APIs.
+
+## 4. `/net/core/dev.c` Packets transmit, receive APIs
+
+- `/net/core/dev.c`:
+  - Tx routines: [packet_transmission.png](../resources/packet_transmission.png)
+    - IPv4 stack -> `dev_queue_xmit_sk()` -> `__dev_queue_xmit()` -> `dev_hard_start_xmit()` -> Device (ring buffer).
+    - `dev_queue_xmit_nit()` -> Network TAPs.
+    - `__dev_xmit_skb()`
+
+  - Rx routines: [packet_reception.png](../resources/packet_reception.png)
+    - Device (ring buffer) -> `netif_receive_skb()` -> `__netif_receive_skb()` -> `__netif_receive_skb_core()` -> IPv4 stack.
+
+- This file have three parts:
+  - Device management APIs: `list_netdevice()`, `unlist_netdevice()`, etc.
+  - Packet transmitter routine.
+  - Packet receiver routine.
+
+- `__dev_queue_xmit()` is very important API that transmit a buffer: Queue a buffer for transmission to a network device.
+
+## 5. `/net/core/skbuff.c` APIs
+
+- `sk_buff` structure is very important structure that represent for network packets.
+  - `sk_buff` objects are maintain in kernel with linked list.
+
+- Some important APIs:
+  - `build_skb()`: build a network buffer.
+  - `kfree_skb()`: Release anything attached to the buffer.
+  - `skb_clone()`: duplicate an sk_buff.
+  - `skb_put()`: add data to a buffer.
+  - `skb_push()`: add data to the start of a buffer.
+  - `skb_trim()`: remove end from a buffer.
