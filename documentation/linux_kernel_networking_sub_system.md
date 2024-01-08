@@ -99,3 +99,15 @@ Hardware    ||          ||          ||              ||                ||
   - `skb_put()`: add data to a buffer.
   - `skb_push()`: add data to the start of a buffer.
   - `skb_trim()`: remove end from a buffer.
+
+## 6. Interrupt context
+
+- `in_interrupt()`: return nonzero if in interrupt context, and zero if in process context. This includes either executing an interrupt handler or a bottom half handler.
+  - `in_irq()`: Returns nonzero if currently executing an interrupt handler and zero otherwise.
+  - `in_softirq()`
+
+- We need to check it in kernel network development because we need to determine what context we are developing.
+
+- More often, you want to check whether you are in process context. That is, you want to ensure you are not in interrupt context. This is often the case because code wants to do something that can only be done from process context, such as sleep. If in_interrupt() returns zero, the kernel is in process context.
+
+## 7.  tcp_parse_options() API to parse TCP options in Linux kernel networking sub-system

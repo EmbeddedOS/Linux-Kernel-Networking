@@ -193,7 +193,6 @@ dresses. This is used to access packet data and to transfer the DMA descriptors 
 
 - the forward example [ixy-fwd.c](https://github.com/emmericp/ixy/blob/b1cfa2240655f2644f7218abad3141236168f005/src/app/ixy-fwd.c) can avoid explicit handling of memory pools in the application: the driver allocates a memory pool for each receive ring automatically allocates packets.
 
-
 ## IXGBE implementation
 
 - IXGBE devices expose all configuration, statistics, and debugging registers via the BAR0 MMIO region.
