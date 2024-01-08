@@ -6,3 +6,4 @@
 *.order
 *.ko
 *.mod
+*.vagrant/
