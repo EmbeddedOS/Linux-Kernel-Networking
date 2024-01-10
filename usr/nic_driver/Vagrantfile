@@ -4,10 +4,9 @@
 Vagrant.configure("2") do |config|
 
     config.vm.box = "debian/stretch64"
-    config.vm.box_version = '=9.3.0'
 
     # we don't use synced folders so disable the default to not require rsync binary on Windows
-    config.vm.synced_folder ".", "/vagrant", disabled: true
+    config.vm.synced_folder ".", "/net"
 
     config.vm.post_up_message = '
 VM started! Run "vagrant ssh <vmname>" to connect.
@@ -16,8 +15,7 @@ Use lspci to find the bus addresses of the VirtIO NICs, it will probably be 0000
 Our NIC driver is installed in /net, run with sudo, e.g.
     sudo /net/app/fwd 0000:00:08.0
 '
-
-    config.vm.define :nic_driver do |config|
+    config.vm.define :nw_stack do |config|
         # IPs are required but not actually used by us.
         config.vm.network "private_network", ip: "10.100.1.10", nic_type: "virtio", virtualbox__intnet: "net1",
             libvirt__network_name: "net1", :libvirt__dhcp_enabled => false
@@ -30,11 +28,10 @@ Our NIC driver is installed in /net, run with sudo, e.g.
             vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
         end
 
-        config.vm.provision "file", source: "./", destination: "/net/"
-
         config.vm.provision "shell", privileged: true, inline: %Q{
-            DEBIAN_FRONTEND=noninteractive apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y cmake build-essential pciutils vim
+            sed -i s/deb.debian.org/archive.debian.org/g /etc/apt/sources.list
+            apt-get update
+            apt-get install -y cmake build-essential pciutils vim
             cd /net/
             sudo -u vagrant cmake .
             sudo -u vagrant make
@@ -42,7 +39,7 @@ Our NIC driver is installed in /net, run with sudo, e.g.
 
 
         config.vm.provision "shell", privileged: true, run: "always", inline: <<-SHELL
-            /net/setup-hugetlbfs.sh
+            /net/setup_hugepage.sh
         SHELL
     end
 end

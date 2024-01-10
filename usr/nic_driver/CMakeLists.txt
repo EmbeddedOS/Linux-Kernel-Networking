@@ -10,5 +10,9 @@ add_compile_options(-g -O2 -march=native -fomit-frame-pointer -std=c11
 )
 
 set(CMAKE_C_STANDARD 11)
+set(NIC_LIB nic)
+
+add_library(${NIC_LIB} STATIC driver/pci.c)
 
 add_executable(fwd app/fwd.c)
+target_link_libraries(fwd PUBLIC ${NIC_LIB})
