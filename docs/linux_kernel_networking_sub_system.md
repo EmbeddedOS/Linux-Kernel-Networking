@@ -72,12 +72,12 @@ Hardware    ||          ||          ||              ||                ||
 ## 4. `/net/core/dev.c` Packets transmit, receive APIs
 
 - `/net/core/dev.c`:
-  - Tx routines: [packet_transmission.png](../resources/packet_transmission.png)
+  - Tx routines: [packet_transmission.png](./resources/packet_transmission.png)
     - IPv4 stack -> `dev_queue_xmit_sk()` -> `__dev_queue_xmit()` -> `dev_hard_start_xmit()` -> Device (ring buffer).
     - `dev_queue_xmit_nit()` -> Network TAPs.
     - `__dev_xmit_skb()`
 
-  - Rx routines: [packet_reception.png](../resources/packet_reception.png)
+  - Rx routines: [packet_reception.png](./resources/packet_reception.png)
     - Device (ring buffer) -> `netif_receive_skb()` -> `__netif_receive_skb()` -> `__netif_receive_skb_core()` -> IPv4 stack.
 
 - This file have three parts:

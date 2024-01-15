@@ -45,8 +45,8 @@
 
 - In case of kernel-space network drivers, all three regions are mapped to kernel space, and any access to these from the user space is typically abstracted out via either `ioctl()` calls or `read()`/ `write()` calls, from where a copy of the data is provided to the user-space application.
 
-- [Kernel space network driver](../resources/kernel_space_network_driver.png)
-- [User space network driver](../resources/user_space_network_driver.png)
+- [Kernel space network driver](./resources/kernel_space_network_driver.png)
+- [User space network driver](./resources/user_space_network_driver.png)
 
 - User space network drivers, on the other hand, map all three regions directly to user space memory. This allows the user-space application to directly driver the buffer descriptor rings from user space. Data buffers can be managed and accessed directly by the application without overhead of a copy.
 
