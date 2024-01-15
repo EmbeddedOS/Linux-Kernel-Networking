@@ -5,7 +5,9 @@
 #include <unistd.h>
 #include <string.h>
 
-#include <driver/pci.h>
+#include <pci.hh>
+#include <driver/dev.hh>
+#include <util/log.hh>
 
 static void usage(int rc);
 
@@ -27,8 +29,9 @@ int main(int argc, char* argv[])
         }
     }
 
-    printf("PCI bus: %s\n", pci_bus_id);
-    printf("out file: %s\n", output_file);
+    debug("PCI bus ID: %s", pci_bus_id);
+
+    device_t *dev = init_device(pci_bus_id);
 
     exit(EXIT_SUCCESS);
 }

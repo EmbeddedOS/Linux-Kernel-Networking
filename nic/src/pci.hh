@@ -75,6 +75,16 @@
  *        attached to it. Removal of PCI root buses is disallowed.
  */
 
-#define PCI_BUS_ID_MAX_LENGTH 20
+#include <stdint.h>
 
-void pci_unbind(const char *pci_addr);
+#define PCI_BUS_ID_MAX_LENGTH 20
+typedef struct {
+    char pci_bus_id[PCI_BUS_ID_MAX_LENGTH];
+    uint16_t vendor_id;
+    uint16_t device_id;
+    uint32_t class_id;
+    void (* unbind)(void);
+} pci_t;
+
+pci_t *pci_init(const char *pci_addr);
+void pci_unbind(pci_t pci);
