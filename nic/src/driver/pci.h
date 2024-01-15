@@ -75,4 +75,6 @@
  *        attached to it. Removal of PCI root buses is disallowed.
  */
 
+#define PCI_BUS_ID_MAX_LENGTH 20
+
 void pci_unbind(const char *pci_addr);

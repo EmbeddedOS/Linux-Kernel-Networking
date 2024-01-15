@@ -12,3 +12,9 @@
 sudo vagrant destroy nw_stack
 sudo vagrant up nw_stack
 ```
+
+## Run application
+
+```bash
+./pcap -o log -b 0000:00:08.0
+```
