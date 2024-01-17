@@ -11,36 +11,50 @@
 
 static void usage(int rc);
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-    char pci_bus_id[PCI_BUS_ID_MAX_LENGTH] = {0};
-    char output_file[50] = {0};
+    std::string pci_bus_id{};
+    std::string output_file{};
     int opt = 0;
-    while ((opt = getopt(argc, argv, "b:o:")) != -1) {
-        switch (opt) {
+    while ((opt = getopt(argc, argv, "hb:o:")) != -1)
+    {
+        switch (opt)
+        {
         case 'b':
-            strncpy(pci_bus_id, optarg, PCI_BUS_ID_MAX_LENGTH);
+            pci_bus_id = std::string{optarg};
             break;
         case 'o':
-            strncpy(output_file, optarg, 50);
+            output_file = std::string{optarg};
+            break;
+        case 'h':
+            usage(EXIT_SUCCESS);
             break;
         default:
             usage(EXIT_FAILURE);
         }
     }
 
-    debug("PCI bus ID: %s", pci_bus_id);
+    debug() << "PCI bus ID: " << pci_bus_id;
+    larva::pci pci {pci_bus_id};
 
-    device_t *dev = init_device(pci_bus_id);
+    // device_t *dev = init_device(pci_bus_id);
 
     exit(EXIT_SUCCESS);
 }
 
 static void usage(int rc)
 {
-    FILE *fp = rc ? stderr : stdout;
-    fprintf(fp, "Usage: pcap [options] file...\n");
-    fprintf(fp, "        -b <pci bus id>    PCI bus ID to capture packets.\n");
-    fprintf(fp, "        -o <file>          Place the output into <file>.\n");
+    std::string s{"Usage: pcap [options] file...\n"
+                  "        -b <pci bus id>    PCI bus ID to capture packets.\n"
+                  "        -o <file>          Place the output into <file>.\n"};
+    if (rc)
+    {
+        std::cerr << s;
+    }
+    else
+    {
+        std::cout << s;
+    }
+
     exit(rc);
 }

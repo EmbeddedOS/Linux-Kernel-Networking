@@ -8,17 +8,23 @@
 #include <util/log.hh>
 #include "pci.hh"
 
-static int pci_open(pci_t *pci, const char *resource);
-
-pci_t *pci_init(const char *pci_addr)
+larva::pci::pci(const std::string &pci_bus_id): _pci_bus_id {pci_bus_id}
 {
-    pci_t *pci = (pci_t *)malloc(sizeof(pci_t));
-    if (pci == NULL) {
-        fatal("Cannot allocate memory to read PCI device.");
-    }
 
+}
 
-    return pci;
+bool larva::pci::is_bind() const
+{
+    return false;
+}
+
+void larva::pci::unbind()
+{
+    return;
+}
+
+void larva::pci::open_resource(const std::string &resource)
+{
 }
 
 /**
@@ -26,35 +32,35 @@ pci_t *pci_init(const char *pci_addr)
  * - Unbind a device from driver. This done by writing the bus id of the
  *   device to unbind file. For example:
  *     $ echo `0000:00:08.0` > /sys/bus/pci/devices/0000:00:08.0/driver/unbind
- * 
+ *
  * @param pci_addr - PCI structure
  */
-void pci_unbind(pci_t *pci)
-{
-    char path[PATH_MAX] = {0};
-    int fd = -1;
-    ssize_t write_size = 0;
+// void pci_unbind(pci_t *pci)
+// {
+//     char path[PATH_MAX] = {0};
+//     int fd = -1;
+//     ssize_t write_size = 0;
 
-    snprintf(path,
-            PATH_MAX,
-            "/sys/bus/pci/devices/%s/driver/unbind",
-            pci->pci_bus_id);
+//     snprintf(path,
+//             PATH_MAX,
+//             "/sys/bus/pci/devices/%s/driver/unbind",
+//             pci->pci_bus_id);
 
-    fd = open(path, O_WRONLY);
-    if (fd < 0) {
-        // The device has been unbind.
-        return;
-    }
+//     fd = open(path, O_WRONLY);
+//     if (fd < 0) {
+//         // The device has been unbind.
+//         return;
+//     }
 
-    write_size = write(fd, pci->pci_bus_id, strlen(pci->pci_bus_id));
-    if (write_size != strlen(pci->pci_bus_id)) {
-        // Failed to unbind.
-    }
+//     write_size = write(fd, pci->pci_bus_id, strlen(pci->pci_bus_id));
+//     if (write_size != strlen(pci->pci_bus_id)) {
+//         // Failed to unbind.
+//     }
 
-    close(fd);
-}
+//     close(fd);
+// }
 
-static int pci_open(pci_t *pci, const char *resource, int flags)
-{
+// static int pci_open(pci_t *pci, const char *resource, int flags)
+// {
 
-}
+// }

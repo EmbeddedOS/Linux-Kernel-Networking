@@ -3,7 +3,7 @@
 /**
  * @file    pci.h
  * @author  Cong Nguyen (congnt264@gmail.com)
- * @brief 
+ * @brief
  *  - Accessing PCI device resources through sysfs:
  *      - sysfs, usually mounted at /sys, provides access to PCI resources on
  *        platforms that support it. For example, a given bus might look like
@@ -76,15 +76,25 @@
  */
 
 #include <stdint.h>
+#include <string>
 
-#define PCI_BUS_ID_MAX_LENGTH 20
-typedef struct {
-    char pci_bus_id[PCI_BUS_ID_MAX_LENGTH];
-    uint16_t vendor_id;
-    uint16_t device_id;
-    uint32_t class_id;
-    void (* unbind)(void);
-} pci_t;
+namespace larva
+{
+    class pci
+    {
 
-pci_t *pci_init(const char *pci_addr);
-void pci_unbind(pci_t pci);
+    public:
+        std::string _pci_bus_id;
+        uint16_t _vendor_id;
+        uint16_t _device_id;
+        uint32_t _class_id;
+
+        explicit pci(const std::string &pci_bus_id);
+        pci() = delete;
+        ~pci() = default;
+
+        bool is_bind() const;
+        void unbind();
+        void open_resource(const std::string &resource);
+    };
+};
