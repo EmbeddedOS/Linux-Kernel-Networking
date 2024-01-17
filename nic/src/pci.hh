@@ -1,5 +1,4 @@
 #pragma once
-
 /**
  * @file    pci.h
  * @author  Cong Nguyen (congnt264@gmail.com)
@@ -82,7 +81,6 @@ namespace larva
 {
     class pci
     {
-
     public:
         std::string _pci_bus_id;
         uint16_t _vendor_id;

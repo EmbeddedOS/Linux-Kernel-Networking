@@ -4,13 +4,21 @@
 #include <linux/limits.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fstream>
+#include <sstream>
 
 #include <util/log.hh>
 #include "pci.hh"
 
 larva::pci::pci(const std::string &pci_bus_id): _pci_bus_id {pci_bus_id}
 {
-
+    std::ifstream config_pci_file;
+    std::ostringstream path {};
+    path << "/sys/bus/pci/devices/" << this->_pci_bus_id << "/config";
+    config_pci_file.open(path.str());
+    if (!config_pci_file) {
+        fatal() << "Failed to open: " << path.str();
+    }
 }
 
 bool larva::pci::is_bind() const
