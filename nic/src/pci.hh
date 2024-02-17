@@ -79,20 +79,20 @@
 
 namespace larva
 {
-    class pci
+    class PCI
     {
     public:
         std::string _pci_bus_id;
         uint16_t _vendor_id;
         uint16_t _device_id;
-        uint32_t _class_id;
+        uint16_t _class_id;
 
-        explicit pci(const std::string &pci_bus_id);
-        pci() = delete;
-        ~pci() = default;
+        explicit PCI(const std::string &pci_bus_id);
+        PCI() = delete;
+        ~PCI() = default;
 
         bool is_bind() const;
-        void unbind();
-        void open_resource(const std::string &resource);
+        bool unbind();
+        bool bind_to_kernel_virtio();
     };
 };
