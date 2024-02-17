@@ -1,7 +1,19 @@
 #pragma once
+#include <memory>
+#include <pci.hh>
 
-typedef struct {
+namespace larva
+{
+    class Device
+    {
+    public:
+        friend class Factory;
+    };
 
-} device_t;
+    class Factory
+    {
+    public:
+        static std::shared_ptr<Device> init(const std::string &pci_bus_id);
+    };
 
-device_t *init_device(const char *pci_bus);
+};

@@ -35,10 +35,7 @@ int main(int argc, char *argv[])
     }
 
     debug() << "PCI bus ID: " << pci_bus_id;
-    larva::pci pci {pci_bus_id};
-
-    // device_t *dev = init_device(pci_bus_id);
-
+    std::shared_ptr<larva::Device> device = larva::Factory::init(pci_bus_id);
     exit(EXIT_SUCCESS);
 }
 
