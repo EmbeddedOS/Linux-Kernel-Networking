@@ -194,3 +194,75 @@ Kernel                                           ||
     - Wireless stations **cannot detect collisions** while transmitting, whereas wired station can. With CSMA/CA, the wireless station waits for a free medium and only then transmits the frame. In case of a collision, the station will not notice it, but because no acknowledgment frame should be sent for this packet, it is retransmitted after a timeout has elapsed if an acknowledgement is not received.
 
   - 2. **Wireless traffic is sensitive to interferences**. As a result, the 802.11 spec requires that every frame, except for broadcast and multicast, **be acknowledged when it is received**. Packets that are not acknowledged in time should be retransmitted.
+
+### 12.2. The 802.11 MAC header
+
+- Each MAC frame consists of a MAC header, a frame body of variable length, and an FC (Frame Check Sequence) of 32 bt CRC..
+
+- IEEE 802.11 header:
+
+```text
+| Frame |Duration|Address|Address|Address|Sequence|Address|  QoS  |   HT  |
+|Control|  /ID   |   1   |   2   |   3   |Control |   4   |Control|Control|
+| 2bytes| 2 bytes|6 bytes|6 bytes|6 bytes|2 bytes |6 bytes|2 bytes|4 bytes|
+```
+
+- The header is represented in mac80211 by the `ieee80211_hdr` structure (`include/linux/ieee80211.h`):
+
+```C
+struct ieee80211_hdr {
+    __le16 frame_control;
+    __le16 duration_id;
+    u8 addr1[6];
+    u8 addr2[6];
+    u8 addr3[6];
+    __le16 seq_ctl;
+    u8 addr4[6];
+} __packed;
+```
+
+- In contrast to an Ethernet header (`struct ethhdr`), which contains only three fields (src MAC, des MAC, and Ethernet type), the 802.11 header contains up to six addresses and some other fields.
+  - For a typical data frame, though, only three addresses are used.
+  - With an ACK frame, only the receiver address is used.
+  - Note that previous header format show only 4 addresses but when we working with Mesh network, a Mesh extension header with two additional addresses are used.
+
+#### 12.2.1. The Frame Control
+
+- Frame control fields:
+
+```text
+|<-B0-B1>|<B2-B3>|<B4-B7>|<-B8>|<-B9-->|<--B10-->|<B11>|<B12>|<B13>|<--B14-->|<-B15->|
+|Protocol| Type  |Subtype|To DS|From DS|   More  |Retry|Power|More |Protected| +HTC/ |
+| version|       |       |     |       |Fragments|     |Mgmt |Data |  Frame  | Order |
+| 2 bits | 2 bits| 4 bits|1 bit| 1 bit |  1 bit  |1 bit|1 bit|1 bit|  1 bit  | 1 bit |
+```
+
+- The following is a description of the frame control members:
+  - 1. **Protocol version**: version of the MAC 802.11 we use. Currently there is only one version of MAC, so this field is always 0.
+  - 2. **Type**: There are three types of packets in 802.11:
+    - 1. **Management Packets** are for management actions like: association, authentication, scanning, and more.
+    - 2. **Control Packets** usually have some relevance to data packets; For example: a station wants to transmit first sends a control packet named RTS (**Request to Send**); if the medium is free, the destination station will send back a control packet named CTS (**Clear to Send**).
+    - 3. **Data Packets** are the raw data packets. NULL packets are a special case of raw packets.
+  - 3. **Subtype**: For all the aforementioned three types of packets (management, control, data), there is a sub-type field which identifies the character of the packet used. For example:
+    - `0100` for the subtype field in a management frame denotes that the packet is a **Probe Request** management packet, which is used in a scan operation.
+  - 4. **ToDS**: When the bit is set, it means the packet is for the distribution system.
+  - 5. **FromDS**: When this bit is set, it means the packet is from the distribution system.
+  - 6. **More flag**: When you use fragmentation, this bit is set to 1.
+  - 7. **Retry**: When a packet is retransmitted, this bit is set to 1.
+  - 8. **Pwr Mgmt**: When the power management bit is set, it means that the station will enter power save mode.
+  - 9. **More Data**: When an AP sends packets that it buffered for a sleeping station, it sets the **More data** bit to 1 when the buffer is not empty.
+  - 10. **Protected Frame**: This bit is set to 1 when the frame body is encrypted; only data frames and authentication frames can be encrypted.
+  - 11. **Order**: With the MAC service called strict ordering. the order of frames is important.
+
+### 12.3. The other 802.11 MAC header Members
+
+- 1. **Duration ID**: holds values for the Network Allocation Vector (NAV) in microseconds, and it consists of 15 bits of the Duration/ID field.
+- 2. **Sequence Control**: This is a 2-byte field specifying the sequence control. In 802.11, it is possible that a packet will be received more than once, most commonly when an acknowledgement is not received for some reason.
+  - The sequence control field consists of a fragment number (4 bits) and a sequence number (12 bits).
+- 3. **Address1 - Address4**: There are four addresses, but you don't always use all of them.
+  - **Address1** is **Receive Address (RA)** and is used in all packets.
+  - **Address2** is **Transmit Address (TA)**, and it exists in all packets except ACK and CTS packets.
+  - **Address3** is used only for management and data packets.
+  - **Address4** is used when **ToDS** and **FromDS** bits of the frame control are set.
+- 4. **QoS Control**: The QoS control is only present in QoS data packets.
+- 5. **HT Control Field**: HT (High Throughput).
