@@ -176,3 +176,21 @@ Kernel                                           ||
 - You can create a netlink socket from user space in a very similar way to ordinary BSD-style sockets, like this, for example: `socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE)`. Then you should create a `sockaddr_nl` object (instance of the netlink socket address structure), initialize it, and use the standard BSD sockets API (such as `bind()`, `sendmsg()`, `recvmsg()`, and so on). The `sockaddr_nl` structure represents a netlink socket address in user space or in the kernel.
 
 #### 2.1.1. Netlink Sockets Libraries
+
+## 12. Wireless in Linux
+
+- This chapter deals with the wireless stack in the Linux Kernel.
+- Becoming familiar with the 802.11 MAC header is essential in order to understand the wireless subsystem implementation.
+
+### 12.1. MAC 802.11 Subsystem
+
+- It was only on about 2001, many of laptops were sold with wireless network interfaces. Today every laptop includes WiFi as standard equipment.
+- It was important to the Linux community at that time to provide **Linux drivers to these wireless network interfaces** and to provide a **Linux wireless stack**, in order to stay competitive with other OSes.
+
+- There are many differences between 802.11 and 802.3 wired Ethernet. Here are two major differences:
+  - 1. Ethernet works with CSMA/CD, whereas 802.11 works with CSMA/CA.
+    - CSMA/CA stands for carrier sense multiple access/**collision avoidance**, and CSMA/CD stands for carrier sense multiple access/**collision detection**.
+    - With Ethernet, a station starts to transmit when the medium is idle; if a collision is detected during transmission, it stops, and a random back off period starts.
+    - Wireless stations **cannot detect collisions** while transmitting, whereas wired station can. With CSMA/CA, the wireless station waits for a free medium and only then transmits the frame. In case of a collision, the station will not notice it, but because no acknowledgment frame should be sent for this packet, it is retransmitted after a timeout has elapsed if an acknowledgement is not received.
+
+  - 2. **Wireless traffic is sensitive to interferences**. As a result, the 802.11 spec requires that every frame, except for broadcast and multicast, **be acknowledged when it is received**. Packets that are not acknowledged in time should be retransmitted.
