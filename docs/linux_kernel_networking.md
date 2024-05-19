@@ -266,3 +266,33 @@ struct ieee80211_hdr {
   - **Address4** is used when **ToDS** and **FromDS** bits of the frame control are set.
 - 4. **QoS Control**: The QoS control is only present in QoS data packets.
 - 5. **HT Control Field**: HT (High Throughput).
+
+### 12.4. Network Topologies
+
+- There are two popular network topologies in 802.11 wireless networks.
+  - 1. Infrastructure BSS (Basic Service Set) mode, which is the most popular: home or office, etc.
+  - 2. IBSS (Ad Hoc) mode. Note that: IBSS is Independent BSS.
+
+#### 12.4.1. Infrastructure BSS
+
+- When working in this mode, there is a central device, called an Access Point (AP), and some client stations. Together they form a BSS (Basic Service Set). These client stations must first perform association and authentication against the AP to be able to transmit packets via the AP.
+
+- On many occasions, client stations perform scanning prior to authentication and association, in order to get details about the AP.
+- Association is exclusive:
+  - 1. A client can be associated with only one AP in a given moment.
+  - 2. When a client associates with an AP successfully, it gets an AID (Association ID), which is a unique number (to this BSS) in the range 1-2007.
+
+- An AP is in fact a wireless network device with some hardware additions (Ethernet ports, LEDs, a button to reset to manufacture defaults, and more).
+
+- A management daemon runs on the AP device. An example of such software is the `hostapd` daemon.
+  - This software handles some of the management tasks of the MLME layer, such as authentication and association requests.
+  - It achieves this by registering itself to receive the relevant management frames via `nl80211`.
+  - The `hostapd` project is **an open source project** which enables several wireless network devices to operate as an AP.
+
+- Clients can communicate with other clients (or to stations in a different network which is bridged to the AP) by sending packets to the AP, which are relayed by the AP to their final destination. To cover a large area, you can deploy multiple APs and connect them by wire.
+
+#### 12.4.2. IBSS or Ad HoC mode
+
+- IBSS network is often formed without preplanning, for only as long as the WLAN is needed.
+
+### 12.5. Power Save Mode
