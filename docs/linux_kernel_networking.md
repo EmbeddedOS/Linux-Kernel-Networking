@@ -356,3 +356,72 @@ struct ieee80211_hdr {
 #### 12.6.4. Reassociation
 
 - When a station moves between APs within an ESS, it is said to be **roaming**. The roaming station sends a reassociation request to a new AP by sending a management frame with reassociation sub-type.
+
+### 12.7. Mac80211 Implementation
+
+- Mac80211 has an API for interfacing with the low level device drivers.
+
+- A fundamental structure of mac80211 API is the `ieee80211_hw` structure (`/include/net/mac80211.h`); it represents hardware information.
+  - The `priv` (pointer to a private area) pointer of `ieee80211_hw` is of an opaque type (`void *`).
+  - Memory allocation and initialization for the `ieee80211_hw struct` is done by the `ieee80211_alloc_hw()` method.
+  - Here are some methods related to the `ieee80211_hw struct`:
+    - 1. `int ieee80211_register_hw(struct ieee80211_hw *hw)`: Called by wireless drivers for registering the specified `ieee80211_hw` object.
+    - 2. `void ieee80211_unregister_hw(struct ieee80211_hw *hw)`: Unregister the specified 802.11 hardware device.
+    - 3. `struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len, const struct ieee80211_ops *ops)`: Allocates an `ieee80211_hw` object and initializes it.
+    - 4. `ieee80211_rx_irqsafe()`: This method is for receiving a packet. It is implemented in `/net/mac80211/rx.c` and called from low level wireless drivers.
+
+- The `ieee80211_ops` object, which is passed to the `ieee80211_alloc_hw()` method, consists of pointers to callbacks to the driver. Not all of these callbacks must be implemented by the drivers. The following is a short description of these methods:
+  - `tx()`: The transmit handler called for each transmitted packet.
+  - `start()`: Activates the hardware device and is called before the first hardware device is enabled.
+  - `stop()`: Turns off frame reception and usually turns off the hardware.
+  - `add_interface()`: Called when a network device attached to the hardware is enabled.
+  - `remove_interface()`: Informs a driver that the interface is going down.
+  - `config()`: Handles configuration requests, such as hw channel configuration.
+  - `configure_filter()`: Configures the device's Rx Filter.
+
+- Linux Wireless Subsystem Architecture:
+
+```text
+ ___________________________________
+|             User-space            |
+|___________________________________|
+ ______________   __________________
+|      iw      | |  wireless-tools  |
+|______________| |(iwconfig, iwlist)|
+ ______________   __________________
+|    nl80211   | |        wext      |
+|______________| |__________________|
+ ___________________________________
+|              cfg80211             |
+|___________________________________|
+         _________________
+        |  cfg80211_ops   |
+        |                 |
+        |    scan()       |
+        |    auth()       |
+        |    connect()    |
+        |    ...          |
+        |_________________|
+ ___________________________________
+|              MAC80211             |
+|___________________________________|
+         ____________________
+        | ieee80211_ops      |
+        |                    |
+        | start()            |
+        | stop()             |
+        | add_interface()    |
+        | remove_interface() |
+        | ...                |
+        |____________________|
+ ___________________________________
+|          Wireless Drivers         |
+|___________________________________|
+```
+
+- Another important structure is th `sta_info struct` (`net/mac80211/sta_info.h`) which represents a station.
+  - Among the members of this structure are various statistics counters, various flags, `debugfs` entries, the `ps_tx_buf` array for buffering unicast packets, and more.
+  - Stations are organized in a hash table (`sta_hash`) and a list (`sta_list`). The important methods related to `sta_info`:
+    - `int sta_info_insert(struct sta_info *sta)`: Adds a station.
+    - `int sta_info_destroy_addr(struct ieee80211_sub_if_data *sdata, const u8 *addr)`: Removes a station.
+    - `struct sta_info *sta_info_get(struct ieee80211_sub)`
