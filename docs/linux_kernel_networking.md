@@ -296,3 +296,63 @@ struct ieee80211_hdr {
 - IBSS network is often formed without preplanning, for only as long as the WLAN is needed.
 
 ### 12.5. Power Save Mode
+
+- Apart from relaying packets, there is another important function for the AP: Buffering packets for client stations that enter power save mode.
+  - Clients are usually battery-powered devices. From time to time, the wireless network interfaces enters power save mode.
+
+#### 12.5.1. Entering Power Save Mode
+
+- When a client station enters power save mode, it informs the AP about it by sending usually **a null data packet**.
+- An AP that gets such a null packet starts keeping unicast packets which are destined to that station in a special buffer called `ps_tx_buf`; there is such a buffer for every station.
+- **This buffer is in fact a linked list of packets**, and it can hold up to 128 packets (STA_MAX_TX_BUFFER) for each station. If the buffer is filled, it will start discarding the packets that were received first (FIFO).
+
+- Apart from this, there is a single buffer called `bc_buf`, for multicast and broadcast packets (in the 802.11 stack, multicast packets should be received and processed by all the stations in the same BSS).
+  - The `bc_buf` buffer can also hold up to 128 packets. When a wireless network interface is in power save mode, it cannot receive or send packets.
+
+#### 12.5.2. Exiting Power Save Mode
+
+- From time to time, an associated station is awakened by itself (by some timer); it then checks for special management packets, called **beacons**, which the AP sends periodically.
+  - 1. Typically, an AP sends 10 beacons in a second, on most APs, this is configurable parameter.
+  - 2. These beacons contain data in `information elements`; which constitute the data in management packet.
+  - 3. The station that awoke checks a specific information element called TIM (Traffic Indication Map), by calling the `ieee80211_check_tim()` method (`include/linux/ieee80211.h`).
+    - The TIM is an array of 2008 entries. Because the TIM size is 251 bytes (2008 bits), you are allowed to send a partial virtual bitmap, which is smaller in size. **If the entry in the TIM for that station is set, it means that the AP saved unicast packets for this station**, so the station should empty the buffer of packets that the AP kept for it.
+- The station starts sending null packets to retrieve these buffered packets from the AP. Usually after the buffer has been emptied, the station goes to sleep.
+
+#### 12.5.3. Handling the Multicast/broadcast buffer
+
+- The AP buffers multicast and broadcast packets whenever at least one station is in sleep mode. **The AID for multicast/broadcast stations is 0**; so in such a case you set `TIM[0]` to true. The Delivery Team (DTIM), which is a special type of TIM, is sent not in every beacon, but once for a predefined number of beacon intervals.
+  - After a DTIM is sent, the AP sends its buffered broadcast and multicast packets.
+  - You retrieve packets from the multicast/broadcast buffer (bc_buf) by calling the `ieee80211_get_buffered_bc()` method.
+
+### 12.6. The Management Layer (MLME)
+
+- There are three components in the 802.11 management architecture:
+  - 1. The Physical Layer Management Entity (PLME).
+  - 2. The System Management Entity (SME).
+  - 3. The MAC Layer Management Entity (MLME).
+
+#### 12.6.1. Scanning
+
+- There are two types of scanning: **passive scanning** and **active scanning**.
+  - passive scanning means to listen passively for beacons, without transmitting any packets for scanning. The station moves from channel to channel, trying to receive beacons.
+  - With active scanning, each station sends a Probe Request Packet; this is a management packet, with subtype Probe Request. The station moves from channel to channel, sending a Probe Request management packet on each channel (by calling the `ieee_80211_send_probe_req()` method).
+
+- this is done by calling the `ieee80211_request_scan()` method.
+- Changing channels is done via a call to the `ieee80211_hw_config()` method.
+
+#### 12.6.2. Authentication
+
+- Authentication is done by calling the `ieee80211_send_auth()` method (`/net/mac80211/util.c`). It sends a management frame with authentication sub-type.
+- There are many authentication types;
+- The original IEEE802.11 spec talked about only two forms: **open-system authentication** and **shared key authentication**.
+
+- In shared key authentication, the station should authenticate using a Wired Equivalent Privacy (WEP) key.
+
+#### 12.6.3. Association
+
+- In order to associate, a station sends a management frame with association sub-type.
+- Association is done by calling the `ieee80211_send_assoc()`.
+
+#### 12.6.4. Reassociation
+
+- When a station moves between APs within an ESS, it is said to be **roaming**. The roaming station sends a reassociation request to a new AP by sending a management frame with reassociation sub-type.
