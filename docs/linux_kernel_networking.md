@@ -424,4 +424,97 @@ struct ieee80211_hdr {
   - Stations are organized in a hash table (`sta_hash`) and a list (`sta_list`). The important methods related to `sta_info`:
     - `int sta_info_insert(struct sta_info *sta)`: Adds a station.
     - `int sta_info_destroy_addr(struct ieee80211_sub_if_data *sdata, const u8 *addr)`: Removes a station.
-    - `struct sta_info *sta_info_get(struct ieee80211_sub)`
+    - `struct sta_info *sta_info_get(struct ieee80211_sub_if_data *sdata, const u8 *addr)`: Fetches a station; the address of the station (it's `bssid`) is passed as a parameter.
+
+#### 12.7.1. Rx Path
+
+- The `ieee80211_rx()` function (`net/mac80211/rx.c`) is the main receive handler. The status of the received packet (`ieee80211_rx_status`) is passed by the wireless driver to mac80211, embedded in the SKB control buffer (cb).
+
+- In the `ieee80211_rx()` method, the `ieee80211_rx_monitor()` is invoked to remove th FCS (checksum) and remove a radiotap header (`struct ieee80211_radiotap_header`) which might have been added if the wireless interface is in monitor mode.
+
+#### 12.7.2. Tx Path
+
+- The `ieee80211_tx()` method is the main handler for transmission (`net/mac80211/tx.c`).
+  - 1. First it invokes the `__ieee80211_tx_prepare()` method, which performs some checks and sets certain flags.
+  - 2. Then it calls the `invoke_tx_handlers()` method, which calls, one by one, various transmit handlers.
+  - 3. If a transmit handler finds that it should do nothing with the packet, it returns TX_CONTINUE and you proceed to the next handler. If it decides it should handle a certain packet, it returns TX_QUEUED, and if it decides it should drop the packet, it returns `TX_DROP`.
+  - 4. The `invoke_tx_handlers()` return 0 upon success.
+
+- A short look in the implementation of the `ieee80211_tx()` method:
+
+```C
+static bool ieee80211_tx(struct ieee80211_sub_if_data *sdata,
+                         struct sk_buff *skb, bool txpending,
+                         enum ieee80211_band band)
+{
+    struct ieee80211_local *local = sdata->local;
+    struct ieee80211_tx_data tx;
+    ieee80211_tx_result res_prepare;
+    struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+    bool result = true;
+    int led_len;
+
+    // ...
+    // Perform a sanity check, drop the SKB if its length is less than 10:
+    if (unlikely(skb->len < 10)) {
+        dev_kfree_skb(skb);
+        return true;
+    }
+
+    // Initializes TX.
+    led_len = skb->len;
+    res_prepare = ieee80211_tx_prepare(sdata, &tx, skb);
+
+    if (unlikely(res_prepare == TX_DROP)) {
+        ieee80211_free_txskb(&local->hw, skb);
+        return true;
+    } else if (unlikely(res_prepare == TX_QUEUED)) {
+        return true;
+    }
+
+    // ...
+    // Invoke the Tx Handler; if everything is fine, continue with invoking the `__ieee80211_tx()` method:
+    if (!invoke_tx_handlers(&tx))
+        result = __ieee80211_tx(local, &tx.skbs, led_len, tx.sta, txpending);
+
+    return true;
+}
+```
+
+#### 12.7.3. Fragmentation
+
+- Fragmentation in 802.11 is done only for unicast packets. Each station is assigned a fragmentation threshold size (in bytes). Packets that are bigger than the this threshold should be fragmented.
+- **You can lower the number of collisions by reducing the fragmentation threshold size, making the packets smaller**.
+
+- You can inspect the fragmentation threshold of a station by running `iwconfig` or by inspecting the corresponding `debugfs` entry.
+- You can set the fragmentation threshold with the `iwconfig` command; thus, for example, you can set the fragmentation threshold to 512 bytes by:
+
+```bash
+iwconfig wlan0 frag 512
+```
+
+- Each fragment is acknowledged. The more fragment field in the fragment header is set to 1 if there are more fragments. Each fragment has a fragment number. Reassembling of the fragments on the receiver is done according to the fragment numbers.
+
+- Fragmentation in the transmitter side is done by the `ieee80211_tx_h_fragment()` method (`net/mac80211/tx.c`).
+- Reassembly on the receiver side is done by the `ieee80211_rx_h_defragment()` method (`net/mac80211/rx.c`).
+
+#### 12.7.4. Mac80211 debugfs
+
+- `debugfs` is a technique that enables exporting debugging information to user-space.
+- It creates entries under the `sysfs` filesystem.
+- `debugfs` is a virtual filesystem devoted to debugging information. For mac80211, handling mac80211 `debugfs` is mostly in `net/mac80211/debugfs.c`. After mounting `debugfs`, various mac80211 statistics and information entries can be inspected. Mounting `debugfs` is performed like this:
+
+```bash
+mount -t debugfs none_debugs /sys/kernel/debug
+```
+
+- For example, let's say your `phy` is `phy0`; the following is a discussion about some of the entries under `/sys/kernel/debug/ieee80211/phy0`.
+  - `total_ps_buffered`: This is the total number of packets (unicast and multicast/broadcasts) which the AP buffered for the station.
+  - Under `/sys/kernel/debug/ieee80211/phy0/statistics`, you have various statistical information--for example:
+    - `frame_duplicate_count`: denotes the number of duplicate frames.
+    - `transmitted_frame_count`: denotes the number of transmitted packets.
+    - `retry_count`: denotes number of retransmissions.
+    - `fragmentation_threshold`: The size of the fragmentation threshold, in bytes.
+  - Under `/sys/kernel/debug/ieee80211/phy0/netdev:wlan0` you have some entries that give information about the interface.
+
+#### 12.7.5. Wireless Mode
