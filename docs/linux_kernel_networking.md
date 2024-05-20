@@ -518,3 +518,16 @@ mount -t debugfs none_debugs /sys/kernel/debug
   - Under `/sys/kernel/debug/ieee80211/phy0/netdev:wlan0` you have some entries that give information about the interface.
 
 #### 12.7.5. Wireless Mode
+
+- You can set a wireless network interface to operate in several modes, depending on its intended use and the topology of the network in which it is deployed.
+- You can set the mode via `iwconfig` command or `hostapd` tool.
+
+- Wireless mode:
+  - 1. **AP mode**: device acts as an AP. The AP maintains and manages a list of associated stations. The network (BSS) name is the MAC address of the AP (bss-id). There is also a human-readable name for the BSS, called the SSID.
+  - 2. **Station infrastructure mode**: A managed station in an infrastructure mode.
+  - 3. **Monitor mode**: All incoming packets are handled unfiltered in monitor mode. This is useful for **sniffing**.
+  - 4. **Ad Hoc mode**: a station in an ad hoc (IBSS) network. With this mode, no AP in network.
+  - 5. **Wireless distribution system (WDS) mode**: A station in a WDS network.
+  - 6. **Mesh mode**: A station in a Mesh network.
+
+### 12.8. High Throughput
