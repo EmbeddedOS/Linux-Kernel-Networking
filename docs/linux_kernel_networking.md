@@ -531,3 +531,44 @@ mount -t debugfs none_debugs /sys/kernel/debug
   - 6. **Mesh mode**: A station in a Mesh network.
 
 ### 12.8. High Throughput
+
+- 802.11n can operate on the 2.4GHz and/or 5GHz bands, whereas 802.11g and 802.11b operate only in the 2.4Ghz radio frequency band, and 802.11a operates only in the 5GHz radio frequency band.
+- With 802.11n you can achieve a theoretical PHY rate of up to 600 MBps.
+
+- 802.11n added many improvements for the 802.11 MAC layer.
+  - The most well known is **packet aggregation**, which concatenates multiple packets of application data into a single transmission frame.
+  - A Block Acknowledgement (BA) mechanism was added. BA permits multiple packets to be acknowledged by a single packet instead of sending an ACK for each received packet.
+
+#### 12.8.1. Packet Aggregation
+
+- There are two types of packet aggregation:
+  - 1. AMSDU: Aggregated MAC Service Data Unit.
+  - 2. AMPDU: Aggregated MAC Protocol Data Unit.
+
+#### 12.8.1. Block Ack Request (BAR)
+
+- The BAR is control packet with Block Ack Request sub-type. The BAR packet includes the SSN (Start-Sequence-Number), which is the sequence number of the oldest MSDU in the block that should be acknowledged.
+
+- BAR request:
+
+```text
+|Frame Control|Duration|   RA   |   TA    |Control|Start sequence Number|
+| 2 bytes     | 2 bytes|6 bytes |6 bytes  |2 bytes| 2 bytes             |
+```
+
+- When sending a BAR, the `type` subfield in the frame control is `control`, and the `subtype` is `Block Ack request`.
+
+- The BAR is represented by the `ieee80211_bar struct` (`include/linux/ieee80211.h`):
+
+```C
+struct ieee80211_bar {
+  __le16 frame_control;
+  __le16 duration;
+  __u8 ra[6];
+  __u8 ta[6];
+  __le16 control;
+  __le16 start_seq_num;
+} __packed;
+```
+
+- The RA is the recipient address and the TA is the transmitter address.
