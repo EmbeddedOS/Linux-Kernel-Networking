@@ -572,3 +572,16 @@ struct ieee80211_bar {
 ```
 
 - The RA is the recipient address and the TA is the transmitter address.
+
+### 12.9. Mesh Networking (802.11s)
+
+### 12.10. Linux Wireless Development Process
+
+- There are three main git tree:
+  - 1. [wireless-testing](git://git.kernel.org/pub/scm/linux/kernel/git/linville/wireless-testing.git)
+  - 2. [wireless development](git://git.kernel.org/pub/scm/linux/kernel/git/linville/wireless-2.6.git)
+  - 3. [wireless next development](git://git.kernel.org/pub/scm/linux/kernel/git/linville/wireless-next-2.6.git)
+
+### 12.11. Summary
+
+- A lot of development has been done in Linux wireless stack in recent years. The most significant change is the integration of the mac80211 stack and porting wireless driver to use the mac80211 API, making the code more organized.
